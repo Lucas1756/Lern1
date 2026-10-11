@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111827">
+<title>Lernapp mit lokaler KI</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg:#111827;
+  --panel:#1f2937;
+  --line:#374151;
+  --text:#f3f4f6;
+  --accent:#93c5fd;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font:16px system-ui,sans-serif;
+}
+header {
+  padding:15px;
+  background:var(--bg);
+  border-bottom:1px solid var(--line);
+  position:sticky;
+  top:0;
+  z-index:2;
+}
+h1 { font-size:1.3rem; }
+nav {
+  display:flex;
+  gap:6px;
+  overflow-x:auto;
+  padding:8px 0;
+}
+button,input,select,textarea {
+  font:inherit;
+  padding:11px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#111c2d;
+  color:var(--text);
+}
+button { cursor:pointer; }
+button.active,.primary {
+  background:var(--accent);
+  color:#111827;
+  font-weight:bold;
+}
+main {
+  max-width:850px;
+  margin:auto;
+  padding:14px;
+}
+.panel {
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:15px;
+  padding:14px;
+  margin-bottom:13px;
+}
+.page { display:none; }
+.page.active { display:block; }
+textarea { width:100%; min-height:100px; }
+input[type=file] { width:100%; }
+.row { display:flex; gap:8px; flex-wrap:wrap; }
+.row>* { flex:1; }
+.muted { color:#c0cad8; font-size:.9rem; }
+.msg {
+  padding:12px;
+  margin:8px 0;
+  background:#172033;
+  border-radius:10px;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+.card {
+  min-height:120px;
+  padding:20px;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  text-align:center;
+  background:#172033;
+  border-radius:14px;
+  margin:12px 0;
+}
+.answer {
+  display:block;
+  width:100%;
+  margin:7px 0;
+  text-align:left;
+}
+progress { width:100%; }
+</style>
+</head>
+<body>
+
+<header>
+<h1>📚 Meine Lernapp</h1>
+<div class="muted">Lernen mit lokaler KI – ohne API-Schlüssel</div>
+<nav>
+<button class="active" data-page="start">Start</button>
+<button data-page="ki">KI</button>
+<button data-page="material">Lernstoff</button>
+<button data-page="karten">Karteikarten</button>
+<button data-page="test">Test</button>
+<button data-page="spiele">Spiele</button>
+<button data-page="texte">Texte</button>
+</nav>
+</header>
+
+<main>
+
+<section class="page active" id="start">
+<div class="panel">
+<h2>Willkommen! 🎓</h2>
+<p>Dein Lernplatz für alle Schulfächer.</p>
+<button class="primary" onclick="go('material')">
+Lernstoff hinzufügen
+</button>
+<button onclick="go('ki')">Lokale KI starten</button>
+</div>
+<div class="panel">
+<h3>Dein Lernfortschritt</h3>
+<p>Material: <span id="mc">0</span></p>
+<p>Karteikarten: <span id="cc">0</span></p>
+<p>Testfragen: <span id="qc">0</span></p>
+</div>
+</section>
+
+<section class="page" id="ki">
+<div class="panel">
+<h2>🤖 Lokale KI</h2>
+<p class="muted">
+Das Modell wird beim ersten Start heruntergeladen.
+Danach kann die Textgenerierung lokal laufen.
+Ein kompatibler Browser mit WebGPU wird benötigt.
+</p>
+<select id="model">
+<option value="Qwen2.5-0.5B-Instruct-q4f16_1-MLC">
+Qwen 2.5 – kleines Modell
+</option>
+<option value="Qwen2.5-1.5B-Instruct-q4f16_1-MLC">
+Qwen 2.5 – größeres Modell
+</option>
+</select>
+<button class="primary" id="load">Modell laden</button>
+<progress id="progress" value="0" max="1"></progress>
+<p id="status" class="muted">Noch nicht geladen.</p>
+</div>
+<div class="panel">
+<h3>Mit der KI chatten</h3>
+<div id="chat" class="msg">
+Lade zuerst das Modell.
+</div>
+<textarea id="prompt" placeholder="Stelle deine Frage ..."></textarea>
+<button id="send" class="primary" disabled>Senden</button>
+</div>
+</section>
+
+<section class="page" id="material">
+<div class="panel">
+<h2>📥 Lernstoff</h2>
+<label>Mehrere Dateien auswählen</label>
+<input id="files" type="file" multiple accept=".txt,.md,.pdf,image/*">
+<p class="muted">
+TXT-Dateien werden gelesen. PDFs können auslesbar sein.
+Bilder werden gespeichert, aber benötigen zusätzliche OCR,
+um automatisch erkannt zu werden.
+</p>
+<textarea id="source" placeholder="Lernstoff hier einfügen ..."></textarea>
+<div class="row">
+<button id="save" class="primary">Speichern</button>
+<button id="generate">Karten und Test erzeugen</button>
+</div>
+<p id="materialStatus" class="muted"></p>
+<div id="materials"></div>
+</div>
+</section>
+
+<section class="page" id="karten">
+<div class="panel">
+<h2>🗂️ Karteikarten</h2>
+<div class="row">
+<button id="prev">← Zurück</button>
+<button id="flip" class="primary">Antwort anzeigen</button>
+<button id="next">Weiter →</button>
+</div>
+<div id="flashcard" class="card">Noch keine Karten.</div>
+<p id="position" class="muted"></p>
+</div>
+<div class="panel">
+<h3>Eigene Karte erstellen</h3>
+<input id="question" placeholder="Frage" style="width:100%">
+<textarea id="answer" placeholder="Antwort"></textarea>
+<button id="add" class="primary">Karte hinzufügen</button>
+</div>
+</section>
+
+<section class="page" id="test">
+<div class="panel">
+<h2>📝 Testmodus</h2>
+<div id="quiz">Erstelle zuerst Testfragen.</div>
+<button id="nextQuestion" class="primary">Nächste Frage</button>
+<button id="restart">Test neu starten</button>
+<p id="score" class="muted"></p>
+</div>
+</section>
+
+<section class="page" id="spiele">
+<div class="panel">
+<h2>🎮 Lernspiele</h2>
+<p>Ordne Fragen ihren Antworten zu.</p>
+<button id="match" class="primary">Spiel starten</button>
+<div id="game"></div>
+</div>
+</section>
+
+<section class="page" id="texte">
+<div class="panel">
+<h2>📖 Texte bearbeiten</h2>
+<textarea id="textInput" placeholder="Text einfügen ..."></textarea>
+<div class="row">
+<button id="summary">Zusammenfassen</button>
+<button id="translation">Ins Englische übersetzen</button>
+<button id="explanation">Einfach erklären</button>
+</div>
+<div id="textOutput" class="msg"></div>
+</div>
+</section>
+
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+
+let db = {materials:[],cards:[],questions:[]};
+let engine = null;
+let busy = false;
+let cardIndex = 0;
+let flipped = false;
+let quizIndex = 0;
+let correct = 0;
+let answered = false;
+let totalAnswered = 0;
+
+try {
+  db = {...db,...JSON.parse(localStorage.getItem('lernapp') || '{}')};
+} catch(e) {}
+
+function persist() {
+  try {
+    localStorage.setItem('lernapp',JSON.stringify(db));
+  } catch(e) {
+    alert('Speicher voll. Bitte entferne große Dateien.');
+  }
+  update();
+  renderMaterials();
+  renderCard();
+}
+
+function update() {
+  $('#mc').textContent = db.materials.length;
+  $('#cc').textContent = db.cards.length;
+  $('#qc').textContent = db.questions.length;
+}
+
+function go(id) {
+  document.querySelectorAll('.page').forEach(p =>
+    p.classList.toggle('active',p.id===id)
+  );
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('active',b.dataset.page===id)
+  );
+}
+
+document.querySelectorAll('nav button').forEach(b => {
+  b.onclick = () => go(b.dataset.page);
+});
+
+async function loadAI() {
+  if (busy) return;
+  busy = true;
+  $('#load').disabled = true;
+  $('#status').textContent = 'Lade KI ...';
+
+  try {
+    if (!navigator.gpu) {
+      throw new Error(
+        'WebGPU nicht verfügbar. Verwende einen kompatiblen Browser.'
+      );
+    }
+
+    const {CreateMLCEngine} =
+      await import('https://esm.run/@mlc-ai/web-llm');
+
+    engine = await CreateMLCEngine($('#model').value,{
+      initProgressCallback: report => {
+        $('#progress').value = report.progress || 0;
+        $('#status').textContent = report.text || 'Lädt ...';
+      }
+    });
+
+    $('#status').textContent = 'KI ist bereit!';
+    $('#send').disabled = false;
+  } catch(e) {
+    $('#status').textContent = 'Fehler: ' + e.message;
+  } finally {
+    busy = false;
+    $('#load').disabled = false;
+  }
+}
+
+$('#load').onclick = loadAI;
+
+async function askAI(prompt,system='Du bist eine hilfreiche deutschsprachige Lern-KI. Erkläre verständlich.') {
+  if (!engine) throw new Error('Bitte zuerst die KI laden.');
+
+  const result = await engine.chat.completions.create({
+    messages:[
+      {role:'system',content:system},
+      {role:'user',content:prompt}
+    ],
+    temperature:0.4,
+    max_tokens:900
+  });
+
+  return result.choices[0].message.content || 'Keine Antwort.';
+}
+
+$('#send').onclick = async () => {
+  const text = $('#prompt').value.trim();
+  if (!text || busy || !engine) return;
+
+  busy = true;
+  $('#send').disabled = true;
+  $('#prompt').value = '';
+  $('#chat').textContent = 'Du: ' + text + '\n\nKI denkt nach ...';
+
+  try {
+    $('#chat').textContent = 'Du: ' + text + '\n\nKI: ' +
+      await askAI(text);
+  } catch(e) {
+    $('#chat').textContent = 'Fehler: ' + e.message;
+  } finally {
+    busy = false;
+    $('#send').disabled = !engine;
+  }
+};
+
+async function readFiles(files) {
+  const parts = [];
+
+  for (const file of files) {
+    if (/\.(txt|md|csv)$/i.test(file.name)) {
+      parts.push(
+        'Datei: ' + file.name + '\n' + await file.text()
+      );
+    } else if (file.type.startsWith('image/')) {
+      parts.push('[Bild ausgewählt: ' + file.name +
+        '. OCR ist noch nicht eingebaut.]');
+    } else if (/\.pdf$/i.test(file.name)) {
+      try {
+        const pdfjs = await import(
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs'
+        );
+        pdfjs.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+
+        const pdf = await pdfjs.getDocument({
+          data: await file.arrayBuffer()
+        }).promise;
+
+        let text = '';
+        for (let i=1;i<=pdf.numPages;i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          text += content.items.map(x=>x.str).join(' ') + '\n';
+        }
+        parts.push('Datei: ' + file.name + '\n' + text);
+      } catch(e) {
+        parts.push('[PDF konnte nicht gelesen werden: ' + file.name + ']');
+      }
+    }
+  }
+
+  return parts.join('\n\n');
+}
+
+$('#save').onclick = async () => {
+  const fileText = await readFiles($('#files').files);
+  const text = ($('#source').value + '\n' + fileText).trim();
+
+  if (!text) {
+    alert('Bitte Text oder Dateien hinzufügen.');
+    return;
+  }
+
+  db.materials.push({
+    title:'Lernstoff ' + (db.materials.length+1),
+    text,
+    date:new Date().toLocaleDateString('de-AT')
+  });
+
+  persist();
+  $('#materialStatus').textContent = 'Material gespeichert.';
+};
+
+function parseCards(text) {
+  const cards = [];
+  const questions = [];
+
+  for (const line of text.split('\n')) {
+    let m = line.match(/^KARTE:\s*(.*?)\s*\|\s*(.+)$/i);
+    if (m) {
+      cards.push({q:m[1],a:m[2]});
+      continue;
+    }
+
+    m = line.match(
+      /^FRAGE:\s*(.*?)\s*\|\s*A=(.*?)\s*\|\s*B=(.*?)\s*\|\s*C=(.*?)\s*\|\s*D=(.*?)\s*\|\s*RICHTIG=([ABCD])\s*$/i
+    );
+
+    if (m) {
+      questions.push({
+        q:m[1],
+        options:[m[2],m[3],m[4],m[5]],
+        correct:'ABCD'.indexOf(m[6].toUpperCase())
+      });
+    }
+  }
+
+  return {cards,questions};
+}
+
+$('#generate').onclick = async () => {
+  if (!engine) {
+    alert('Lade zuerst die lokale KI.');
+    go('ki');
+    return;
+  }
+
+  const text = [
+    $('#source').value,
+    ...db.materials.map(m=>m.text)
+  ].filter(Boolean).join('\n\n').slice(0,10000);
+
+  if (!text.trim()) {
+    alert('Füge zuerst Lernstoff hinzu.');
+    return;
+  }
+
+  $('#materialStatus').textContent = 'Erstelle Lernmaterial ...';
+
+  try {
+    const result = await askAI(
+      'Erstelle bis zu 10 Karteikarten und 5 Testfragen aus diesem Stoff. '+
+      'Gib nur Zeilen in diesen Formaten aus:\n'+
+      'KARTE: Frage | Antwort\n'+
+      'FRAGE: Frage | A=Antwort1 | B=Antwort2 | C=Antwort3 | D=Antwort4 | RICHTIG=A\n\n'+
+      'LERNSTOFF:\n'+text
+    );
+
+    const parsed = parseCards(result);
+    db.cards.push(...parsed.cards);
+    db.questions.push(...parsed.questions);
+    persist();
+
+    $('#materialStatus').textContent =
+      parsed.cards.length + ' Karten und ' +
+      parsed.questions.length + ' Testfragen erstellt.';
+    go('karten');
+  } catch(e) {
+    $('#materialStatus').textContent = 'Fehler: ' + e.message;
+  }
+};
+
+function renderMaterials() {
+  const box = $('#materials');
+  box.replaceChildren();
+
+  db.materials.forEach((m,i) => {
+    const div = document.createElement('div');
+    div.className = 'msg';
+    div.textContent = m.title + ' · ' + m.date + '\n' +
+      (m.text || '').slice(0,250);
+
+    const del = document.createElement('button');
+    del.textContent = 'Löschen';
+    del.onclick = () => {
+      db.materials.splice(i,1);
+      persist();
+    };
+
+    div.append(document.createElement('br'),del);
+    box.append(div);
+  });
+}
+
+function renderCard() {
+  const c = db.cards[cardIndex];
+
+  if (!c) {
+    $('#flashcard').textContent = 'Noch keine Karten.';
+    $('#position').textContent = '0 / 0';
+    return;
+  }
+
+  $('#flashcard').textContent = flipped ? c.a : c.q;
+  $('#position').textContent =
+    (cardIndex+1) + ' / ' + db.cards.length;
+}
+
+$('#flip').onclick = () => {
+  flipped = !flipped;
+  renderCard();
+};
+
+$('#prev').onclick = () => {
+  if (!db.cards.length) return;
+  cardIndex = (cardIndex-1+db.cards.length)%db.cards.length;
+  flipped = false;
+  renderCard();
+};
+
+$('#next').onclick = () => {
+  if (!db.cards.length) return;
+  cardIndex = (cardIndex+1)%db.cards.length;
+  flipped = false;
+  renderCard();
+};
+
+$('#add').onclick = () => {
+  const q = $('#question').value.trim();
+  const a = $('#answer').value.trim();
+
+  if (!q || !a) {
+    alert('Bitte Frage und Antwort eingeben.');
+    return;
+  }
+
+  db.cards.push({q,a});
+  $('#question').value = '';
+  $('#answer').value = '';
+  persist();
+};
+
+function showQuestion() {
+  const area = $('#quiz');
+  area.replaceChildren();
+  answered = false;
+
+  if (!db.questions.length) {
+    area.textContent = 'Noch keine Testfragen vorhanden.';
+    return;
+  }
+
+  if (quizIndex >= db.questions.length) {
+    area.textContent = 'Test beendet! Ergebnis: ' + correct +
+      ' von ' + totalAnswered + ' richtig (' +
+      Math.round(correct/Math.max(1,totalAnswered)*100) + '%).';
+    return;
+  }
+
+  const q = db.questions[quizIndex];
+  const title = document.createElement('h3');
+  title.textContent = 'Frage ' + (quizIndex+1) + ': ' + q.q;
+  area.append(title);
+
+  q.options.forEach((option,i) => {
+    const b = document.createElement('button');
+    b.className = 'answer';
+    b.textContent = 'ABCD'[i] + '. ' + option;
+
+    b.onclick = () => {
+      if (answered) return;
+      answered = true;
+      totalAnswered++;
+
+      if (i === q.correct) {
+        correct++;
+        b.textContent += ' ✓ Richtig!';
+      } else {
+        b.textContent += ' ✗ Falsch';
+      }
+
+      $('#score').textContent = 'Ergebnis: ' + correct + '/' +
+        totalAnswered + ' (' +
+        Math.round(correct/totalAnswered*100) + '%)';
+    };
+
+    area.append(b);
+  });
+}
+
+$('#nextQuestion').onclick = () => {
+  if (!db.questions.length) return;
+  if (!answered && quizIndex < db.questions.length) {
+    alert('Wähle zuerst eine Antwort.');
+    return;
+  }
+  quizIndex++;
+  showQuestion();
+};
+
+$('#restart').onclick = () => {
+  quizIndex = 0;
+  correct = 0;
+  totalAnswered = 0;
+  showQuestion();
+  $('#score').textContent = '';
+};
+
+$('#match').onclick = () => {
+  const game = $('#game');
+  game.replaceChildren();
+
+  if (db.cards.length < 2) {
+    game.textContent = 'Du brauchst mindestens zwei Karten.';
+    return;
+  }
+
+  const cards = db.cards.slice(0,6);
+  let selected = null;
+  const left = document.createElement('div');
+  const right = document.createElement('div');
+
+  function makeButton(card,isAnswer) {
+    const b = document.createElement('button');
+    b.className = 'answer';
+    b.textContent = isAnswer ? card.a : card.q;
+
+    b.onclick = () => {
+      if (!isAnswer) {
+        selected = card;
+        b.style.borderColor = '#93c5fd';
+      } else if (selected && selected === card) {
+        b.textContent += ' ✓';
+        b.disabled = true;
+        [...left.children].forEach(x => {
+          if (x.dataset.id === String(card.id)) {
+            x.disabled = true;
+            x.textContent += ' ✓';
+          }
+        });
+        selected = null;
+      } else if (selected) {
+        alert('Dieses Paar passt nicht.');
+        selected = null;
+      }
+    };
+
+    b.dataset.id = card.id;
+    return b;
+  }
+
+  cards.forEach((c,i) => c.id=i);
+  [...cards].sort(()=>Math.random()-.5)
+    .forEach(c=>left.append(makeButton(c,false)));
+  [...cards].sort(()=>Math.random()-.5)
+    .forEach(c=>right.append(makeButton(c,true)));
+
+  game.append(left,right);
+};
+
+async function textAction(action) {
+  const text = $('#textInput').value.trim();
+  if (!text) {
+    alert('Bitte zuerst einen Text einfügen.');
+    return;
+  }
+  if (!engine) {
+    alert('Lade zuerst die lokale KI.');
+    go('ki');
+    return;
+  }
+
+  const instructions = {
+    summary:'Fasse diesen Text auf Deutsch in Stichpunkten zusammen.',
+    translation:'Übersetze diesen Text ins Englische.',
+    explanation:'Erkläre diesen Text in einfachem Deutsch.'
+  };
+
+  $('#textOutput').textContent = 'Verarbeite Text ...';
+
+  try {
+    $('#textOutput').textContent =
+      await askAI(instructions[action]+'\n\n'+text);
+  } catch(e) {
+    $('#textOutput').textContent = 'Fehler: '+e.message;
+  }
+}
+
+$('#summary').onclick = () => textAction('summary');
+$('#translation').onclick = () => textAction('translation');
+$('#explanation').onclick = () => textAction('explanation');
+
+update();
+renderMaterials();
+renderCard();
+showQuestion();
+</script>
+</body>
+</html>
